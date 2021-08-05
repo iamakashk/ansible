@@ -1,0 +1,54 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Update apt Cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+    - name: Wait for APT Lock
+      shell: while fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
+    - name: install dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+    - name: add GPG
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+    - name: aggiungi repository docker
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable
+        state: present
+    - name: installing docker-ce=5:19.03.15~3-0~ubuntu-bionic docker-ce-cli=5:19.03.15~3-0~ubuntu-bionic containerd.io
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - docker-ce=5:19.03.15~3-0~ubuntu-bionic
+          - docker-ce-cli=5:19.03.15~3-0~ubuntu-bionic
+          - containerd.io
+    - name: assicurati che docker sia attivo
+      service:
+        name: docker
+        state: started
+        enabled: yes
+    - name: Install docker-compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/1.25.4/docker-compose-Linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: "u+x,g+x"
+    - name: Install docker-machine
+      get_url:
+        url: https://github.com/docker/machine/releases/download/v0.16.2/docker-machine-Linux-x86_64
+        dest: /usr/local/bin/docker-machine
+        mode: "u+x,g+x"
+  handlers:
+    - name: restart docker
+      service:
+        name: docker
+        state: restarted
