@@ -1,0 +1,93 @@
+- hosts: redis-server
+  become: true
+  tasks:
+    #check for system updates
+    - name: update apt cache
+      apt: update_cache=yes
+    #build-essential & tcl is required to install redis
+    - name: install required packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - build-essential
+          - tcl
+    #download required version of redis and put it in same folder where this playbook is
+    # https://download.redis.io/releases/
+    - name: unarchive redis tar file
+      unarchive:
+        src: ./redis-6.2.5.tar.gz
+        dest: /tmp
+        mode: u=rwx,g=rx,o=rx
+        owner: root
+        creates: /tmp/redis-stable
+    - name: Execute sudo make distclean
+      shell: chdir=/tmp/redis-6.2.5 make distclean
+      # register is being used to display output of shell commands while running playbook
+      # This will be useful to debug issues
+      register: command_output
+    - debug:
+        var: command_output.stdout_lines
+    - name: Execute sudo make
+      shell: chdir=/tmp/redis-6.2.5 make
+      register: command_output
+    - debug:
+        var: command_output.stdout_lines
+    - name: Execute make test
+      shell: chdir=/tmp/redis-6.2.5 test
+      register: command_output
+      failed_when: command_output.rc not in [ 0, 1 ]
+    - debug:
+        var: command_output.stdout_lines
+    - name: Execute sudo make install
+      shell: chdir=/tmp/redis-6.2.5 make install
+      register: command_output
+    - debug:
+        var: command_output.stdout_lines
+    - name: COPY install_server.sh to utils folder
+      copy:
+        src: ./install_server.sh
+        dest: /tmp/redis-6.2.5/utils/install_server.sh
+    - name: Executing redis server shell script inside utils
+      expect:
+        chdir: /tmp/redis-6.2.5/utils
+        command: sh install_server.sh
+        # Keys in response map are regular expressions, so ? and (...) are
+        # treated as regexp control characters resulting in no match.
+        # If you really want to pass the whole string, you should use:
+        # responses:
+        # 'Would you like to create one now\? \(yes/no\):': 'yes'
+        # But given there is no more create on now text in any other prompt, you can use:
+        # responses:
+        # 'create one now': 'yes'
+        responses:
+          "redis port": 6793
+          "redis config": ""
+          "redis log": ""
+          "data directory": ""
+          "redis executable": ""
+          "Is this ok": ""
+    - name: restart redis_6793 after copying cnf file
+      service:
+        name: redis_6793
+        state: restarted
+    - name: Stopping redis service before copying db file
+      service:
+        name: redis_6793
+        state: stopped
+    # if you have backup of your redis then include this step otherwise you can comment it
+    - name: Copying redis db to target machine
+      copy:
+        src: ./dump.rdb
+        dest: /var/lib/redis/6793/dump.rdb
+    - name: restarting redis_6793 after copying db file
+      service:
+        name: redis_6793
+        state: restarted
+    - name: Allow SSH in UFW
+      ufw: rule=allow port=22 proto=tcp
+    - name: Allow Redis Port  = 6793 in UFW
+      ufw: rule=allow port=6793 proto=tcp
+    - name: Set firewall default policy
+      ufw: state=enabled policy=reject
