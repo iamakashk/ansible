@@ -1,0 +1,48 @@
+- hosts: mysql-db
+  become: true
+  tasks:
+    - name: Update apt Cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
+    - name: Wait for APT Lock
+      shell: while fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
+    - name: install MySQL
+      apt:
+        name:
+          - mysql-server
+    - name: Start the MySQL service
+      action: service name=mysql state=started
+    - name: Creates directory to copy master db dump and config file
+      file:
+        path: /home/akashkamble/mysql-setup
+        state: directory
+# Copy your own configuration if you have any. Else comment it.
+    - name: Copying mysql config file to target server
+      copy:
+        src: ./masterdb.cnf
+        dest: /etc/mysql/mysql.conf.d/mysqld.cnf
+    - name: restart MySQL after copying cnf file
+      service:
+        name: mysql
+        state: restarted
+    - name: Copy MySQL User Creation File 
+      copy:
+        src: ./mysqlUserSetup.sh
+        dest: /home/akashkamble/mysql-setup/mysqlUserSetup.sh
+    - name: Running master user script on target machine
+      command: sudo sh /home/akashkamble/mysql-setup/mysqlUserSetup.sh
+# use following task if you have any backup of your MySQL db. else comment it.	  
+    - name: Copy mysql dump to restore 
+      copy:
+        src: ./masterdump.sql
+        dest: /home/akashkamble/mysql-setup/masterdump.sql
+# Restoring MySQL db from .sql file		
+    - name: RESTORE MYSQL DB FROM .SQL FILE
+      shell: sudo mysql -uroot < /home/akashkamble/mysql-setup/masterdump.sql
+    - name: Allow SSH in UFW
+      ufw: rule=allow port=22 proto=tcp
+    - name: Allow MySQL Master Port  = 3306 in UFW
+      ufw: rule=allow port=3306 proto=tcp
+    - name: Set firewall default policy
+      ufw: state=enabled policy=reject
